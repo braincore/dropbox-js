@@ -21,8 +21,8 @@ class Dropbox.Util.Oauth
     @_stateParam = null
     @_authCode = null
     @_token = null
-    @_tokenKey = null
-    @_tokenKid = null
+    @_tokenMacKeyId= null
+    @_tokenMacKey = null
     @_error = null
     @_appHash = null
     @_loaded = null
@@ -52,9 +52,9 @@ class Dropbox.Util.Oauth
     @reset()
     if options.token
       @_token = options.token
-      if options.tokenKey
-        @_tokenKey = options.tokenKey
-        @_tokenKid = options.tokenKid
+      if options.tokenMacKeyId
+        @_tokenMacKeyId = options.tokenMacKeyId
+        @_tokenMacKey = options.tokenMacKey
     else if options.oauthCode
       @_authCode = options.oauthCode
     else if options.oauthStateParam
@@ -76,9 +76,9 @@ class Dropbox.Util.Oauth
     returnValue.secret = @_secret if @_secret
     if @_token isnt null
       returnValue.token = @_token
-      if @_tokenKey
-        returnValue.tokenKey = @_tokenKey
-        returnValue.tokenKid = @_tokenKid
+      if @_tokenMacKeyId
+        returnValue.tokenMacKeyId= @_tokenMacKeyId
+        returnValue.tokenMacKey = @_tokenMacKey
     else if @_authCode isnt null
       returnValue.oauthCode = @_authCode
     else if @_stateParam isnt null
@@ -197,12 +197,15 @@ class Dropbox.Util.Oauth
 
       @reset()
       @_loaded = false
-      if tokenType is 'mac'
-        if queryParams.mac_algorithm isnt 'hmac-sha-1'
+      # Dropbox will return a mac_key_id & mac_key with the token type set to
+      # bearer. They've done this to be backwards compatible with existing
+      # OAuth2 libraries.
+      if queryParams.mac_key_id
+        if queryParams.mac_algorithm isnt 'hmac-sha-256'
           throw new Error(
               "Unimplemented MAC algorithms #{queryParams.mac_algorithm}")
-        @_tokenKey = queryParams.mac_key
-        @_tokenKid = queryParams.kid
+        @_tokenMacKeyId= queryParams.mac_key_id
+        @_tokenMacKey = queryParams.mac_key
       @_token = queryParams.access_token
       return true
 
@@ -234,14 +237,8 @@ class Dropbox.Util.Oauth
         Dropbox.Util.btoa("#{@_id}:#{@_secret}")
       "Basic #{userPassword}"
     else
-      if @_tokenKey is null
-        # RFC 6750: Bearer Tokens.
-        "Bearer #{@_token}"
-      else
-        # IETF draft-ietf-oauth-v2-http-mac
-        macParams = @macParams method, url, params
-        "MAC kid=#{macParams.kid} ts=#{macParams.ts} " +
-              "access_token=#{@_token} mac=#{macParams.mac}"
+      # RFC 6750: Bearer Tokens.
+      "Bearer #{@_token}"
 
   # Generates OAuth-required form parameters.
   #
@@ -259,22 +256,22 @@ class Dropbox.Util.Oauth
   #   that receives the request
   # @param {Object} params an associative array (hash) containing the HTTP
   #   request parameters; this parameter will be mutated
+  # @param {Object} usePresignedUrl a boolean indicating whether a Presigned
+  #   Url should be used. If macKeyId is not set, falls back to token.
   # @return {Object} the value of the params argument
-  addAuthParams: (method, url, params) ->
+  addAuthParams: (method, url, params, usePresignedUrl) ->
     if @_token is null
       # RFC 6749: OAuth 2.0 (Client Authentication, Protocol Endpoints)
       params.client_id = @_id
       if @_secret isnt null
         params.client_secret = @_secret
     else
-      if @_tokenKey isnt null
-        # IETF draft-ietf-oauth-v2-http-mac
-        macParams = @macParams method, url, params
-        params.kid = macParams.kid
-        params.ts = macParams.ts
-        params.mac = macParams.mac
-      # RFC 6750: Bearer Tokens and IETF draft-ietf-oauth-v2-http-mac
-      params.access_token = @_token
+      if usePresignedUrl and @_tokenMacKeyId isnt null
+        # Dropbox's protocol for OAuth 2 Mac
+        params.signature = @presignedUrlSignature method, url, params
+      else
+        # RFC 6750: Bearer Tokens
+        params.access_token = @_token
     params
 
   # The query parameters to be used in an OAuth 2 /authorize URL.
@@ -346,7 +343,8 @@ class Dropbox.Util.Oauth
           decodeURIComponent kvp.substring(offset + 1)
     params
 
-  # The parameters of an OAuth 2 MAC authenticator.
+  # The parameters of for a Presigned Url (loosely based on the OAuth 2 MAC
+  # draft).
   #
   # @private
   # This is called internally by addHeader and addAuthParams when OAuth 2 MAC
@@ -359,16 +357,31 @@ class Dropbox.Util.Oauth
   # @param {Object} queryParams an associative array (hash) containing the
   #   query parameters in the HTTP request URL
   # @return {Object<String, String>} the MAC authenticator attributes
-  macParams: (method, url, params) ->
-    macParams = { kid: @_tokenKid, ts: Dropbox.Util.Oauth.timestamp() }
+  presignedUrlSignature: (method, url, params) ->
+    # Currently, we do not support selectively omitting parameters, so we just
+    # set this to empty. But, we could have methods specifically select
+    # parameters that should be ommitted.
+    paramsToOmit = []
+    httpVerb = method
+    # Especially important to encode for unicode paths
+    httpRequestUri = encodeURI(url.substring(url.indexOf('/', 8)))
+    # Set to maximum 4 hour expiration
+    expires = (Math.round Date.now()/1000) + 3600 * 4
+    # Signature version format
+    version = '1'
 
-    # TODO(pwnall): upgrade to the OAuth 2 MAC tokens algorithm
-    string = method.toUpperCase() + '&' +
-      Dropbox.Util.Xhr.urlEncodeValue(url) + '&' +
-      Dropbox.Util.Xhr.urlEncodeValue(Dropbox.Util.Xhr.urlEncode(params))
-    macParams.mac = Dropbox.Util.hmac string, @_tokenKey
+    paramsToOmitStr = paramsToOmit.join(':')
+    valuesToSign = [version, @_tokenMacKeyId, paramsToOmitStr, expires,
+                    httpVerb, httpRequestUri]
+    # Add all non-ommitted parameters in sorted order, and ensure that they
+    # are url encoded.
+    for p in Object.keys(params).sort()
+      if p not in paramsToOmit 
+        valuesToSign.push Dropbox.Util.Xhr.urlEncodeValue(params[p])
+    stringToSign = valuesToSign.join('\n')
+    digest = Dropbox.Util.hmac stringToSign, @_tokenMacKey
 
-    macParams
+    [version, @_tokenMacKeyId, paramsToOmitStr, expires, digest].join('.')
 
   # @private
   # Use {Dropbox.Client#appHash} instead.
@@ -392,8 +405,8 @@ class Dropbox.Util.Oauth
     @_stateParam = null
     @_authCode = null
     @_token = null
-    @_tokenKey = null
-    @_tokenKid = null
+    @_tokenMacKeyId= null
+    @_tokenMacKey = null
     @_error = null
     @
 

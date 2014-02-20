@@ -206,16 +206,16 @@ class Dropbox.Util.Xhr
   #   biased towards allowing the HTTP cache to work; by default, the choice
   #   attempts to avoid the CORS preflight request whenever possible
   # @return {Dropbox.Util.Xhr} this, for easy call chaining
-  signWithOauth: (oauth, cacheFriendly) ->
+  signWithOauth: (oauth, cacheFriendly, usePresignedUrl) ->
     if Dropbox.Util.Xhr.ieXdr
-      @addOauthParams oauth
+      @addOauthParams oauth, usePresignedUrl 
     else if @preflight or !Dropbox.Util.Xhr.doesPreflight
       @addOauthHeader oauth
     else
       if @isGet and cacheFriendly
         @addOauthHeader oauth
       else
-        @addOauthParams oauth
+        @addOauthParams oauth, usePresignedUrl
 
   # Amends the request parameters to include an OAuth signature.
   #
@@ -225,12 +225,12 @@ class Dropbox.Util.Xhr
   # @param {Dropbox.Util.Oauth} oauth OAuth instance whose key and secret will
   #   be used to sign the request
   # @return {Dropbox.Util.Xhr} this, for easy call chaining
-  addOauthParams: (oauth) ->
+  addOauthParams: (oauth, usePresignedUrl) ->
     if @signed
       throw new Error 'Request already has an OAuth signature'
 
     @params or= {}
-    oauth.addAuthParams @method, @url, @params
+    oauth.addAuthParams @method, @url, @params, usePresignedUrl 
     @signed = true
     @
 
@@ -526,7 +526,7 @@ class Dropbox.Util.Xhr
   @urlEncodeValue: (object) ->
     encodeURIComponent(object.toString()).replace(/\!/g, '%21').
       replace(/'/g, '%27').replace(/\(/g, '%28').replace(/\)/g, '%29').
-      replace(/\*/g, '%2A')
+      replace(/\*/g, '%2A').replace(/%20/g,'+')
 
   # Decodes an x-www-form-urlencoded String into an associative array (hash).
   #

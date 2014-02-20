@@ -936,7 +936,7 @@ class Dropbox.Client
 
     xhr = new Dropbox.Util.Xhr 'GET',
                                "#{@_urls.thumbnails}/#{@_urlEncodePath(path)}"
-    xhr.setParams(params).signWithOauth(@_oauth)
+    xhr.setParams(params).signWithOauth(@_oauth, null, true)
 
   # Reverts a file's contents to a previous version.
   #

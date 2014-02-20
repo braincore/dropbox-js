@@ -11,8 +11,8 @@ do ->
   # @param {String} key the HMAC key
   # @return {String} a base64-encoded HMAC of the given string and key
   Dropbox.Util.hmac = (string, key) ->
-    arrayToBase64 hmacSha1(stringToArray(string), stringToArray(key),
-                           string.length, key.length)
+    arrayToBase64 hmacSha256(stringToArray(string), stringToArray(key),
+                             string.length, key.length)
 
   # Base64-encoded SHA1.
   #
@@ -65,6 +65,25 @@ do ->
 
     hash1 = sha1 ipad.concat(string), 64 + length
     sha1 opad.concat(hash1), 64 + 20
+
+  # HMAC-SHA256 implementation.
+  #
+  # @private
+  # This method is not exported.
+  #
+  # @param {Array} string the HMAC input, as an array of 32-bit numbers
+  # @param {Array} key the HMAC input, as an array of 32-bit numbers
+  # @param {Number} length the length of the HMAC input, in bytes
+  # @return {Array} the HMAC output, as an array of 32-bit numbers
+  hmacSha256 = (string, key, length, keyLength) ->
+    if key.length > 16
+      key = sha256 key, keyLength
+
+    ipad = (key[i] ^ 0x36363636 for i in [0...16])
+    opad = (key[i] ^ 0x5C5C5C5C for i in [0...16])
+
+    hash1 = sha256 ipad.concat(string), 64 + length
+    sha256 opad.concat(hash1), 64 + 32 
 
   # SHA1 implementation.
   #
@@ -294,7 +313,7 @@ do ->
       i += 1
     string
 
-  _base64Digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  _base64Digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
   # Converts an ASCII string into array of 32-bit numbers.
   stringToArray = (string) ->
