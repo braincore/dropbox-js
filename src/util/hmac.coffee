@@ -298,22 +298,22 @@ do ->
       i2 += 1
       trit |= (array[i2 >> 2] >> ((3 - (i2 & 3)) << 3)) & 0xFF
 
-      string += _base64Digits[(trit >> 18) & 0x3F]
-      string += _base64Digits[(trit >> 12) & 0x3F]
+      string += _base64UrlSafeDigits[(trit >> 18) & 0x3F]
+      string += _base64UrlSafeDigits[(trit >> 12) & 0x3F]
       i += 1
       if i >= limit
         string += '='
       else
-        string += _base64Digits[(trit >> 6) & 0x3F]
+        string += _base64UrlSafeDigits[(trit >> 6) & 0x3F]
       i += 1
       if i >= limit
         string += '='
       else
-        string += _base64Digits[trit & 0x3F]
+        string += _base64UrlSafeDigits[trit & 0x3F]
       i += 1
     string
 
-  _base64Digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  _base64UrlSafeDigits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
   # Converts an ASCII string into array of 32-bit numbers.
   stringToArray = (string) ->

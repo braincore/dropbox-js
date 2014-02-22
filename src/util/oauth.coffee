@@ -376,8 +376,9 @@ class Dropbox.Util.Oauth
     # Add all non-ommitted parameters in sorted order, and ensure that they
     # are url encoded.
     for p in Object.keys(params).sort()
-      if p not in paramsToOmit 
-        valuesToSign.push Dropbox.Util.Xhr.urlEncodeValue(params[p])
+      if p not in paramsToOmit
+        encodedValue = encodeURIComponent(params[p])
+        valuesToSign.push encodeURIComponent(p) + '=' + encodedValue
     stringToSign = valuesToSign.join('\n')
     digest = Dropbox.Util.hmac stringToSign, @_tokenMacKey
 
